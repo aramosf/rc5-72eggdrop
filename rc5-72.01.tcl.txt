@@ -1,0 +1,110 @@
+# Mon Dec  1 15:34:05 CET 2003 <dab@knelo.com>
+# http://www.knelo.com / http://www.wo0t.com
+# Distributed Spanish Team RC5-72 tcl script. www.wo0t.com
+# show top groups in list. and stats of user
+
+
+# channels (space delimited)
+set channel "#dst #wo0t"
+
+# number of groups to show
+set max "10"
+
+# command
+set command "!rc5"
+
+
+# MM HH DD MM YY.  (like crontab, its for show maxtop)
+bind time - "30 02 * * *" dst
+bind time - "00 14 * * *" dst
+
+bind pub f|f "$command" dst:user
+
+
+package require http
+
+proc dst {min hour day month year } {
+ global channel max 
+ set count "0"
+ set maxl [expr $max * 6 ]
+ set query "http://stats.distributed.net/team/tlist.php?project_id=8&low=1&limit=100"
+ foreach d [split [http::data [http::geturl $query]] "\n"] {
+  if { [string match "*td><a href=\"tmsummary.php?project_id=8&amp;team=*" $d] && $count < $max } {
+	incr count
+	regexp -nocase {\">(.*?)</a></td>} $d gname
+    regsub -all -nocase -- "\">" $gname "" gname
+    regsub -all -nocase -- "</a></td>" $gname "" gname
+	lappend groups "$gname"
+   }
+  if { [string match "*<td align=\"right\">*" $d] && $count < $maxl } {
+    regsub -all -nocase -- ".*?<td align=\"right\">" $d "" d
+    regsub -all -nocase -- "</td>" $d "" d
+	lappend datos($gname) "$d"
+  }
+ }
+
+ foreach chan [split $channel " "]  {
+  puthelp "PRIVMSG $chan :top $max stats of RC5-72 project (\002www.wo0t.com\002)"
+  set count "0"
+  foreach group $groups {
+   incr count
+   puthelp "PRIVMSG $chan :\002$count\.- $group\002: first unit: \002[lindex $datos($group) 0]\002, last unit: \002[lindex $datos($group) 1]\002, days: \002[lindex $datos($group) 2]\002, current members: \002[lindex $datos($group) 3]\002, blocks overall: \002[lindex $datos($group) 4]\002, blocks yesterday: \002[lindex $datos($group) 5]\002"
+  }
+ }  
+}
+
+
+proc dst:user { nick uhost handle chan arg } {
+ global us channel frase newurl 
+ set u [lindex $arg 0]
+ set query "http://stats.distributed.net/participant/psearch.php?project_id=8&st=$u"
+ set token [http::geturl $query]
+ puts stderr ""
+ upvar #0 $token state
+ set max 0
+ foreach {name value} $state(meta) {
+  if {[regexp -nocase ^location$ $name]} {
+    set newurl [string trim $value]
+  }
+ }
+ set newurl "http://stats.distributed.net/participant/$newurl"
+ set count "0"
+ set c2 "0"
+ foreach d [split [http::data [http::geturl $newurl]] "\n"] {
+  if { [string match "*<h1 class=\"phead\">*" $d] } {
+   regexp -nocase {\">(.*?)</h1>} $d "" d
+   regsub -all -nocase -- "\">" $d "" d
+   regsub -all -nocase -- "</h1>" $d "" d
+   set us "$d"
+  }
+  if { [string match "*<span style=\"color:*" $d] && $count < "2" } {
+   regexp -nocase {(\d*?)<span} $d "" pos
+   regsub -all -nocase -- "<span" $pos "" pos
+    if { [string match "*down.gif*" $d] } { 
+     set r "-" 
+     incr count
+    }
+    if { [string match "*up.gif*" $d] } { 
+     set r "+" 
+     incr count
+   }
+   regexp -nocase {(\d*?)\)} $d "" m
+  if { $count == 1 } {
+   set frase "$us: overall rank: $pos (${r}${m}), "
+  } elseif { $count == 2 } {
+   append frase "today rank: $pos (${r}${m}), "
+  }
+  }
+  if { [string match "*<td align=\"right\">*" $d] && $c2 < "4" } {
+   incr c2
+   if { $c2 == 3 } {
+     regexp -nocase {<td align=\"right\">(.*?)</td>} $d "" d
+     append frase "overall blocks: $d, "
+   } elseif { $c2 == 4 } {
+     regexp -nocase {<td align=\"right\">(.*?)</td>} $d "" d
+     append frase "yesterday blocks: $d"
+     putquick "PRIVMSG $chan :$frase"
+   }
+  }
+ }
+}
